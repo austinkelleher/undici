@@ -236,6 +236,87 @@ test('MockInterceptor - defaultReplyHeaders', t => {
   })
 })
 
+test('MockInterceptor - reply async callback', async t => {
+  t.plan(2)
+
+  function setupAsyncCallbackTest (t) {
+    const baseUrl = 'http://localhost:9999'
+    const mockAgent = new MockAgent()
+    t.teardown(mockAgent.close.bind(mockAgent))
+
+    const mockPool = mockAgent.get(baseUrl)
+    return { mockPool }
+  }
+
+  await t.test('should resolve with collected data', async t => {
+    t.plan(2)
+
+    const { mockPool } = setupAsyncCallbackTest(t)
+
+    mockPool.intercept({
+      path: '/test',
+      method: 'GET'
+    }).reply(async (options) => {
+      t.strictSame(options, { path: '/test', method: 'GET', headers: { foo: 'bar' } })
+      return Promise.resolve({ statusCode: 200, data: 'hello' })
+    })
+
+    let collectedData
+
+    await new Promise((resolve) => {
+      mockPool.dispatch({
+        path: '/test',
+        method: 'GET',
+        headers: { foo: 'bar' }
+      }, {
+        onHeaders: () => {},
+        onData: (d) => {
+          collectedData = d.toString()
+        },
+        onComplete: () => {
+          resolve(collectedData)
+        }
+      })
+    })
+
+    t.equal(collectedData, 'hello')
+  })
+
+  await t.test('should call onError when reply function rejects', async t => {
+    t.plan(1)
+
+    const { mockPool } = setupAsyncCallbackTest(t)
+    const expectedError = new Error('expected error')
+
+    mockPool.intercept({
+      path: '/test',
+      method: 'GET'
+    }).reply(async () => {
+      throw expectedError
+    })
+
+    await t.rejects(
+      new Promise((resolve, reject) => {
+        mockPool.dispatch({
+          path: '/test',
+          method: 'GET',
+          headers: { foo: 'bar' }
+        }, {
+          onHeaders: () => {},
+          onError: (err) => {
+            reject(err)
+          },
+          onData: () => {},
+          onComplete: () => {
+            reject(new Error('should not call onComplete'))
+          }
+        })
+      }),
+      expectedError
+    )
+  })
+})
+
 test('MockInterceptor - defaultReplyTrailers', t => {
   t.plan(2)
 
